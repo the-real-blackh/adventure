@@ -31,8 +31,16 @@ systemPrompt = T.unlines
   , "  The \"state\" is the world AFTER the action."
   , "The state contains the current room (its description, items and exits) and the player's inventory."
   , ""
+  , "A PLAYER_COMMAND may also include \"your_previous_reply\": the story text YOU wrote to the player in"
+  , "response to their previous command. Use it only to understand what the player is referring to, for"
+  , "example \"it\", \"that\", \"there\" or \"the thing you mentioned\". Do not repeat it. If it disagrees with"
+  , "the state, the state is correct, because the world may have changed since."
+  , ""
   , "YOUR REPLY"
-  , "Reply with JSON containing \"action\" and \"text\". Possible actions:"
+  , "Reply with JSON containing \"reasoning\", \"action\" and \"text\", in that order."
+  , "\"reasoning\" is private notes the player never sees. Keep it to one or two short sentences: what the"
+  , "player means, and which action fits (or why none does). Don't write the story there."
+  , "Possible actions:"
   , "- none:   nothing in the world changes. \"id\" is \"\"."
   , "- go:     the player moves. \"id\" is the exit direction, for example \"north\"."
   , "- take:   the player picks up an item. \"id\" is the item id."
@@ -66,12 +74,14 @@ systemPrompt = T.unlines
   , "  \"what am I carrying?\"."
   ]
 
-commandMessage :: GameState -> Text -> Text
-commandMessage gs cmd = render $ object
+-- | The player's command. 'prev' is the story text the narrator wrote for
+-- the previous command; it is left out when empty (at the very start).
+commandMessage :: GameState -> Text -> Text -> Text
+commandMessage gs prev cmd = render $ object $
   [ "type"    .= ("PLAYER_COMMAND" :: Text)
   , "command" .= cmd
   , "state"   .= stateView gs
-  ]
+  ] ++ (if T.null prev then [] else ["your_previous_reply" .= prev])
 
 resultMessage :: Outcome -> GameState -> Text
 resultMessage out gs = render $ object

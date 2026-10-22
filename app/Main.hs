@@ -56,11 +56,14 @@ main = do
   debugLog env "system prompt" systemPrompt
 
   -- The first command is implicit, so the story opens with the room.
-  gs <- runSession env initialWorld "look"
-  loop env gs
+  (gs, said) <- runSession env initialWorld "" "look"
+  loop env gs said
 
-loop :: Env -> GameState -> IO ()
-loop env gs = do
+-- | The game loop. 'prev' is the story text the narrator wrote in
+-- response to the previous command, passed along so the narrator can
+-- resolve words like "it" and "there".
+loop :: Env -> GameState -> Text -> IO ()
+loop env gs prev = do
   TIO.putStr "\n> "
   eof <- isEOF
   if eof
@@ -68,20 +71,24 @@ loop env gs = do
     else do
       cmd <- T.strip <$> TIO.getLine
       if T.null cmd
-        then loop env gs
+        then loop env gs prev
         else if T.toLower cmd `elem` ["quit", "exit"]
           then TIO.putStrLn "\nThe book closes softly."
           else do
             TIO.putStrLn ""
-            gs' <- runSession env gs cmd
-            loop env gs'
+            (gs', said) <- runSession env gs prev cmd
+            -- If this session produced no text (e.g. an error), keep the
+            -- older reply so the narrator still has something to refer to.
+            loop env gs' (if T.null said then prev else said)
 
 -- | One session: the player's command, then any number of
 -- action → engine result turns, until the LLM stops asking for actions.
-runSession :: Env -> GameState -> Text -> IO GameState
-runSession env gs0 cmd0 =
-  step 0 gs0 [ Message "system" systemPrompt
-             , Message "user" (commandMessage gs0 cmd) ]
+-- Returns the new state and all story text printed during the session.
+runSession :: Env -> GameState -> Text -> Text -> IO (GameState, Text)
+runSession env gs0 prev cmd0 = do
+  (gs, texts) <- step 0 gs0 [] [ Message "system" systemPrompt
+                               , Message "user" (commandMessage gs0 prev cmd) ]
+  pure (gs, T.intercalate "\n\n" texts)
   where
 
     cmd = case cmd0 of
@@ -91,36 +98,40 @@ runSession env gs0 cmd0 =
         "e" -> "go east"
         x -> x
   
-    step :: Int -> GameState -> [Message] -> IO GameState
-    step n gs msgs = do
+    -- 'said' collects the story text printed so far, newest first.
+    step :: Int -> GameState -> [Text] -> [Message] -> IO (GameState, [Text])
+    step n gs said msgs = do
       -- Show the message just added (the system prompt was shown at startup).
       debugLog env "engine -> LLM" (msgContent (last msgs))
       result <- chat (envConfig env) msgs
       case result of
         Left err -> do
           TIO.hPutStrLn stderr ("[error] " <> err)
-          pure gs
+          done gs said
         Right raw -> do
           debugLog env "LLM -> engine" raw
           case parseReply raw of
             Left err -> do
               TIO.hPutStrLn stderr ("[error] could not understand the narrator's reply: " <> T.pack err)
-              pure gs
-            Right (Reply mAction txt) -> do
+              done gs said
+            Right (Reply _ mAction txt) -> do
               unless (T.null txt) (putWrapped txt)
+              let said' = if T.null txt then said else txt : said
               case mAction of
-                Nothing -> pure gs
+                Nothing -> done gs said'
                 Just action
                   | n >= maxActions -> do
                       debugLog env "engine" "too many actions for one command; ending the session"
-                      pure gs
+                      done gs said'
                   | otherwise -> do
                       let (outcome, gs') = runAction action gs
                       debugLog env "engine"
                         (T.pack (show action) <> " => " <> TL.toStrict (encodeToLazyText outcome))
-                      step (n + 1) gs'
+                      step (n + 1) gs' said'
                         (msgs ++ [ Message "assistant" raw
                                  , Message "user" (resultMessage outcome gs') ])
+
+    done gs said = pure (gs, reverse said)
 
 debugLog :: Env -> Text -> Text -> IO ()
 debugLog env label body =

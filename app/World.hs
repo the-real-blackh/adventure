@@ -143,7 +143,7 @@ initialWorld = GameState
       , exitTraversable = False
       , exitRules       = \e ->
           if exitTraversable e
-              then Just "An open door leads north."
+              then Just "You can go through the door."
               else Just "A locked wooden door in the wall. The player can unlock this door if they have the key."
       , exitRequires    = Just "key"
       , exitBlockedText = "the door is locked"
