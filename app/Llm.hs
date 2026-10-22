@@ -66,7 +66,7 @@ replySchema = pairs $
   <> pair "properties" (pairs $
           pair "reasoning" (pairs $
                "type"      .= ("string" :: Text)
-            <> "maxLength" .= (400 :: Int))
+            <> "maxLength" .= (4000 :: Int))
        <> pair "action" (pairs $
                "type" .= ("object" :: Text)
             <> pair "properties" (pairs $

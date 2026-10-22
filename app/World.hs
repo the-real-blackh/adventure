@@ -83,7 +83,7 @@ openExit dir to = Exit
 initialWorld :: GameState
 initialWorld = GameState
   { gsLocation  = "path"
-  , gsRooms     = Map.fromList [ (roomId r, r) | r <- [path, river, gate, garden] ]
+  , gsRooms     = Map.fromList [ (roomId r, r) | r <- [path, river, grassy, garden] ]
   , gsInventory = []
   }
   where
@@ -98,12 +98,12 @@ initialWorld = GameState
       { roomId          = "river"
       , roomDescription = "The bank of a slow, clear river. The ground here is soft and muddy."
       , roomItems       = [rock, key]
-      , roomExits       = [openExit "south" "path", openExit "north" "gate"]
+      , roomExits       = [openExit "south" "path", openExit "north" "grassy"]
       }
 
-    gate = Room
-      { roomId          = "gate"
-      , roomDescription = "An old stone wall, thickly covered in ivy, blocks the way. Set into the wall is a weathered wooden door."
+    grassy = Room
+      { roomId          = "grassy"
+      , roomDescription = "A grassy area with an old stone wall, thickly covered in ivy, blocks the way. Set into the wall is a weathered wooden door."
       , roomItems       = []
       , roomExits       = [door, openExit "south" "river"]
       }
@@ -112,14 +112,14 @@ initialWorld = GameState
       { roomId          = "garden"
       , roomDescription = "A beautiful garden, overflowing with flowers of every colour."
       , roomItems       = []
-      , roomExits       = [openExit "south" "gate"]
+      , roomExits       = [openExit "south" "grassy"]
       }
 
     rock = Item
       { itemId          = "rock"
       , itemDescription = "a small mossy rock by the river"
       , itemVisible     = True
-      , itemRules       = const $ Just "It is half-buried in the mud and cannot be carried away, but the player can lift it or tip it over."
+      , itemRules       = const $ Just "It is half-buried in the mud and cannot be carried away, but the player can lift it or tip it over. Looking under it implies lifting it."
       , itemPortability = Fixed "the rock is half-buried in the mud and won't come free"
       , itemRevealText  = Nothing
       }
@@ -144,7 +144,7 @@ initialWorld = GameState
       , exitRules       = \e ->
           if exitTraversable e
               then Just "You can go through the door."
-              else Just "A locked wooden door in the wall. The player can unlock this door if they have the key."
+              else Just "A locked wooden door in the wall. The player can unlock this door if they have the key. They must explicitly say to unlock it."
       , exitRequires    = Just "key"
       , exitBlockedText = "the door is locked"
       , exitUnlockText  = Just "the key turns stiffly in the lock and the door swings open"
