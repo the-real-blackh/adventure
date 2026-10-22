@@ -79,10 +79,18 @@ loop env gs = do
 -- | One session: the player's command, then any number of
 -- action → engine result turns, until the LLM stops asking for actions.
 runSession :: Env -> GameState -> Text -> IO GameState
-runSession env gs0 cmd =
+runSession env gs0 cmd0 =
   step 0 gs0 [ Message "system" systemPrompt
              , Message "user" (commandMessage gs0 cmd) ]
   where
+
+    cmd = case cmd0 of
+        "n" -> "go north"
+        "s" -> "go south"
+        "w" -> "go west"
+        "e" -> "go east"
+        x -> x
+  
     step :: Int -> GameState -> [Message] -> IO GameState
     step n gs msgs = do
       -- Show the message just added (the system prompt was shown at startup).

@@ -33,23 +33,21 @@ data Item = Item
   { itemId          :: ItemId
   , itemDescription :: Text
   , itemVisible     :: Bool        -- ^ False: the LLM knows about it but must not mention it
-  , itemRules       :: Maybe Text  -- ^ Guidance for the LLM about this item
+  , itemRules       :: Item -> Maybe Text  -- ^ Guidance for the LLM about this item
   , itemPortability :: Portability -- ^ Engine-only
   , itemRevealText  :: Maybe Text  -- ^ Engine-only: description returned on a successful reveal
   }
-  deriving (Show)
 
 data Exit = Exit
   { exitId          :: Maybe Text  -- ^ Needed for exits that can be unlocked, e.g. "door"
   , exitDirection   :: Text
   , exitTo          :: RoomId
   , exitTraversable :: Bool
-  , exitRules       :: Maybe Text  -- ^ Guidance for the LLM about this exit
+  , exitRules       :: Exit -> Maybe Text  -- ^ Guidance for the LLM about this exit
   , exitRequires    :: Maybe ItemId -- ^ Engine-only: item needed in the inventory to unlock
   , exitBlockedText :: Text        -- ^ Engine-only: description when the way is blocked
   , exitUnlockText  :: Maybe Text  -- ^ Engine-only: description on a successful unlock
   }
-  deriving (Show)
 
 data Room = Room
   { roomId          :: RoomId
@@ -57,14 +55,12 @@ data Room = Room
   , roomItems       :: [Item]
   , roomExits       :: [Exit]
   }
-  deriving (Show)
 
 data GameState = GameState
   { gsLocation  :: RoomId
   , gsRooms     :: Map RoomId Room
   , gsInventory :: [Item]
   }
-  deriving (Show)
 
 currentRoom :: GameState -> Room
 currentRoom gs = case Map.lookup (gsLocation gs) (gsRooms gs) of
@@ -78,7 +74,7 @@ openExit dir to = Exit
   , exitDirection   = dir
   , exitTo          = to
   , exitTraversable = True
-  , exitRules       = Nothing
+  , exitRules       = const Nothing
   , exitRequires    = Nothing
   , exitBlockedText = ""
   , exitUnlockText  = Nothing
@@ -123,7 +119,7 @@ initialWorld = GameState
       { itemId          = "rock"
       , itemDescription = "a small mossy rock by the river"
       , itemVisible     = True
-      , itemRules       = Just "It is half-buried in the mud and cannot be carried away, but the player can lift it or tip it over."
+      , itemRules       = const $ Just "It is half-buried in the mud and cannot be carried away, but the player can lift it or tip it over."
       , itemPortability = Fixed "the rock is half-buried in the mud and won't come free"
       , itemRevealText  = Nothing
       }
@@ -132,7 +128,10 @@ initialWorld = GameState
       { itemId          = "key"
       , itemDescription = "an old iron key"
       , itemVisible     = False
-      , itemRules       = Just "Reveal if the player looks under, lifts, moves or turns over the rock."
+      , itemRules       = \it ->
+          if itemVisible it
+              then Nothing
+              else Just "Reveal if the player looks under, lifts, moves or turns over the rock."
       , itemPortability = Portable
       , itemRevealText  = Just "the player found a key glinting in the mud under the rock"
       }
@@ -142,7 +141,10 @@ initialWorld = GameState
       , exitDirection   = "north"
       , exitTo          = "garden"
       , exitTraversable = False
-      , exitRules       = Just "A locked wooden door in the wall. The player can unlock this door if they have the key."
+      , exitRules       = \e ->
+          if exitTraversable e
+              then Just "An open door leads north."
+              else Just "A locked wooden door in the wall. The player can unlock this door if they have the key."
       , exitRequires    = Just "key"
       , exitBlockedText = "the door is locked"
       , exitUnlockText  = Just "the key turns stiffly in the lock and the door swings open"

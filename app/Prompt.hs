@@ -98,14 +98,14 @@ itemView it = object $
   [ "id"          .= itemId it
   , "description" .= itemDescription it
   , "visible"     .= itemVisible it
-  ] ++ opt "rules" (itemRules it)
+  ] ++ opt "rules" (itemRules it it)
 
 exitView :: Exit -> Value
 exitView e = object $
   [ "direction"   .= exitDirection e
   , "leads_to"    .= exitTo e
   , "traversable" .= exitTraversable e
-  ] ++ opt "id" (exitId e) ++ opt "rules" (exitRules e)
+  ] ++ opt "id" (exitId e) ++ opt "rules" (exitRules e e)
 
 opt :: Key -> Maybe Text -> [Pair]
 opt k = maybe [] (\v -> [k .= v])
