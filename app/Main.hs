@@ -70,9 +70,7 @@ loop env gs prev = do
     then TIO.putStrLn ""
     else do
       cmd <- T.strip <$> TIO.getLine
-      if T.null cmd
-        then loop env gs prev
-        else if T.toLower cmd `elem` ["quit", "exit"]
+      if T.toLower cmd `elem` ["quit", "exit"]
           then TIO.putStrLn "\nThe book closes softly."
           else do
             TIO.putStrLn ""

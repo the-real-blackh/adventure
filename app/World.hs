@@ -98,11 +98,11 @@ initialWorld = GameState
       { roomId          = "river"
       , roomDescription = "The bank of a slow, clear river. The ground here is soft and muddy."
       , roomItems       = [rock, key]
-      , roomExits       = [openExit "south" "path", openExit "north" "grassy"]
+      , roomExits       = [openExit "south" "path", openExit "north" "grassy area"]
       }
 
     grassy = Room
-      { roomId          = "grassy"
+      { roomId          = "grassy area"
       , roomDescription = "A grassy area with an old stone wall, thickly covered in ivy, blocks the way. Set into the wall is a weathered wooden door."
       , roomItems       = []
       , roomExits       = [door, openExit "south" "river"]
@@ -112,14 +112,14 @@ initialWorld = GameState
       { roomId          = "garden"
       , roomDescription = "A beautiful garden, overflowing with flowers of every colour."
       , roomItems       = []
-      , roomExits       = [openExit "south" "grassy"]
+      , roomExits       = [openExit "south" "grassy area"]
       }
 
     rock = Item
       { itemId          = "rock"
       , itemDescription = "a small mossy rock by the river"
       , itemVisible     = True
-      , itemRules       = const $ Just "It is half-buried in the mud and cannot be carried away, but the player can lift it or tip it over. Looking under it implies lifting it."
+      , itemRules       = const $ Just "It is half-buried in the mud. The player can lift it or look under it."
       , itemPortability = Fixed "the rock is half-buried in the mud and won't come free"
       , itemRevealText  = Nothing
       }
