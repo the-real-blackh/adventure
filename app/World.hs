@@ -126,7 +126,7 @@ initialWorld = GameState
 
     key = Item
       { itemId          = "key"
-      , itemDescription = "an old iron key"
+      , itemDescription = "an old brass key"
       , itemVisible     = False
       , itemRules       = \it ->
           if itemVisible it
