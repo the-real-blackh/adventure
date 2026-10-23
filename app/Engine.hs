@@ -36,7 +36,7 @@ instance ToJSON Outcome where
 runAction :: Action -> GameState -> (Outcome, GameState)
 runAction action gs = case action of
 
-  Go dir -> case find ((== norm dir) . norm . exitDirection) exits of
+  Go dir -> case find (\exit -> exitDirection exit == norm dir || exitId exit == Just (norm dir)) exits of
     Nothing -> failWith ("there is no way to go " <> dir <> " from here")
     Just e
       | not (exitTraversable e) -> failWith (exitBlockedText e)
