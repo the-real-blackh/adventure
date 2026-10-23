@@ -54,7 +54,7 @@ ollamaUrl = "http://localhost:11434/api/chat"
 --
 -- It is built as an 'Encoding' rather than a 'Value' because the order of
 -- the properties matters: the model writes them in schema order, and we
--- want it to reason first, then pick an action, then write the story.
+-- want it to reason first, then write the story, then pick an action.
 -- (An aeson 'Value' would sort the keys alphabetically.)
 --
 -- All fields are required so a small model can't drop them; "optional" is
@@ -67,6 +67,7 @@ replySchema = pairs $
           pair "reasoning" (pairs $
                "type"      .= ("string" :: Text)
             <> "maxLength" .= (4000 :: Int))
+       <> pair "text" (pairs $ "type" .= ("string" :: Text))
        <> pair "action" (pairs $
                "type" .= ("object" :: Text)
             <> pair "properties" (pairs $
@@ -74,9 +75,8 @@ replySchema = pairs $
                          "type" .= ("string" :: Text)
                       <> "enum" .= (["none", "go", "take", "drop", "reveal", "unlock"] :: [Text]))
                  <> pair "id" (pairs $ "type" .= ("string" :: Text)))
-            <> "required" .= (["action", "id"] :: [Text]))
-       <> pair "text" (pairs $ "type" .= ("string" :: Text)))
-  <> "required" .= (["reasoning", "action", "text"] :: [Text])
+            <> "required" .= (["action", "id"] :: [Text])))
+  <> "required" .= (["reasoning", "text", "action"] :: [Text])
 
 -- | Send the whole conversation so far and return the assistant's raw reply.
 chat :: Config -> [Message] -> IO (Either Text Text)
