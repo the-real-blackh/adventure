@@ -23,7 +23,7 @@ import           Data.Text.Encoding.Error  (lenientDecode)
 import           Network.HTTP.Client
 import           Network.HTTP.Types.Status (statusCode)
 
-import           Engine                    (Action (..))
+import           Engine                    (Command (..))
 
 data Config = Config
   { cfgManager :: Manager
@@ -43,7 +43,7 @@ instance ToJSON Message where
 -- player), an optional action and optional story text.
 data Reply = Reply
   { replyReasoning :: Text
-  , replyAction    :: Maybe Action
+  , replyAction    :: Maybe Command
   , replyText      :: Text      -- ^ empty means no text
   }
 
@@ -134,7 +134,7 @@ parseReply raw = eitherDecodeStrict (TE.encodeUtf8 raw) >>= parseEither reply
                toAction (T.toLower n) (T.strip i)) a
       pure (Reply (T.strip r) act (T.strip t))
 
-    toAction :: Text -> Text -> Parser (Maybe Action)
+    toAction :: Text -> Text -> Parser (Maybe Command)
     toAction n i = case n of
       "none"   -> pure Nothing
       "go"     -> pure (Just (Go i))

@@ -3,9 +3,9 @@
 -- | The game engine: applies actions requested by the LLM and enforces
 -- the rules. The LLM proposes, the engine disposes.
 module Engine
-  ( Action (..)
+  ( Command (..)
   , Outcome (..)
-  , runAction
+  , runCommand
   ) where
 
 import           Control.Monad.Reader (runReader)
@@ -17,7 +17,7 @@ import qualified Data.Text            as T
 import           State
 import           World
 
-data Action
+data Command
   = Go Text        -- ^ direction
   | Take ItemId
   | Drop ItemId
@@ -34,20 +34,20 @@ instance ToJSON Outcome where
   toJSON (Outcome s d) =
     object (("success" .= s) : maybe [] (\t -> ["description" .= t]) d)
 
-runAction :: Action -> GameState -> (Outcome, GameState)
-runAction action gs = flip runReader gs $ do
+runCommand :: Command -> GameState -> (Outcome, GameState)
+runCommand command gs = flip runReader gs $ do
   here    <- roomItems (gsLocation gs)
   carried <- inventory
   exits   <- roomExits =<< currentRoom
-  case action of
+  case command of
 
     Go dir -> case find (\exit -> exitDirection exit == norm dir || exitId exit == Just (norm dir)) exits of
       Nothing -> pure $ failWith ("there is no way to go " <> dir <> " from here")
       Just e -> do
-        t <- exitTraversable e
-        if t
-          then (\to -> succeed Nothing gs { gsLocation = to }) <$> exitTo e
-          else failWith <$> exitBlockedText e
+        blocked <- exitBlocked e
+        case blocked of
+          Nothing  -> (\to -> succeed Nothing gs { gsLocation = to }) <$> exitTo e
+          Just why -> pure $ failWith why
 
     Take iid -> do
       let notHere
@@ -79,17 +79,9 @@ runAction action gs = flip runReader gs $ do
 
     Unlock eid -> case find (maybe False ((== norm eid) . norm) . exitId) exits of
       Nothing -> pure $ failWith "there is nothing like that to unlock here"
-      Just e -> do
-        t   <- exitTraversable e
-        req <- exitRequires e
-        case (req, exitId e) of
-          _ | t -> pure $ failWith "it is already unlocked"
-          (Just need, Just x)
-            | any (matches need) carried -> do
-                d <- exitUnlockText e
-                pure $ succeed d (moveItem need (InLock x) gs)
-            | otherwise -> pure $ failWith ("the player does not have the " <> need)
-          _ -> pure $ failWith "it cannot be unlocked"
+      Just e -> pure $
+        let (d, gs', changed) = runAction (exitUnlock e) gs
+        in  (Outcome changed d, gs')
 
   where
     succeed d gs' = (Outcome True d, gs')

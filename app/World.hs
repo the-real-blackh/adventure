@@ -1,8 +1,10 @@
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 -- | The game logic: the rooms, items and exits, and how they behave
 -- given the current "State". Everything other than ids is computed in the
--- 'Logic' monad, so it can depend on anything in the game state.
+-- 'Logic' monad, so it can depend on anything in the game state. Things
+-- that change the game state are written in the 'Action' monad.
 --
 -- Everything here is owned by the game engine. The LLM only ever sees a
 -- JSON view of it (see "Prompt"), and some fields — such as which item
@@ -12,6 +14,13 @@ module World
   , ItemId
   , ExitId
   , Logic
+  , Action
+  , ReadState (..)
+  , runAction
+  , logic
+  , setFlag
+  , clearFlag
+  , getFlag
   , Portability (..)
   , Item (..)
   , Exit (..)
@@ -24,9 +33,12 @@ module World
   , initialState
   ) where
 
-import           Control.Monad.Reader (Reader, asks)
+import           Control.Monad.Reader (Reader, ask, asks, runReader)
+import           Control.Monad.State  (State, get, gets, put, runState)
 import           Data.Map.Strict      (Map)
 import qualified Data.Map.Strict      as Map
+import           Data.Maybe           (isNothing)
+import qualified Data.Set             as Set
 import           Data.Text            (Text)
 import qualified Data.Text            as T
 
@@ -34,6 +46,44 @@ import           State
 
 -- | A computation that can read the game state.
 type Logic = Reader GameState
+
+-- | A computation that can change the game state. The 'Bool' starts as
+-- False and becomes True if anything in the game state has changed.
+type Action = State (GameState, Bool)
+
+-- | Run an action, giving its result, the new game state, and whether
+-- anything changed.
+runAction :: Action a -> GameState -> (a, GameState, Bool)
+runAction act gs = let (a, (gs', changed)) = runState act (gs, False) in (a, gs', changed)
+
+-- | Monads that can read the game state.
+class Monad m => ReadState m where
+  readState :: m GameState
+
+instance ReadState (Reader GameState) where
+  readState = ask
+
+instance ReadState Action where
+  readState = gets fst
+
+-- | Use game logic from within an action.
+logic :: Logic a -> Action a
+logic l = gets (runReader l . fst)
+
+modifyState :: (GameState -> GameState) -> Action ()
+modifyState f = do
+  (gs, changed) <- get
+  let gs' = f gs
+  put (gs', changed || gs' /= gs)
+
+setFlag :: Text -> Action ()
+setFlag k = modifyState (\gs -> gs { gsFlags = Set.insert k (gsFlags gs) })
+
+clearFlag :: Text -> Action ()
+clearFlag k = modifyState (\gs -> gs { gsFlags = Set.delete k (gsFlags gs) })
+
+getFlag :: ReadState m => Text -> m Bool
+getFlag k = Set.member k . gsFlags <$> readState
 
 -- | Whether an item can be picked up. 'Fixed' carries the reason it can't.
 data Portability = Portable | Fixed Text
@@ -52,9 +102,8 @@ data Exit = Exit
   , exitDirection   :: Text
   , exitTo          :: Logic RoomId
   , exitRules       :: Logic (Maybe Text)  -- ^ Guidance for the LLM about this exit
-  , exitRequires    :: Logic (Maybe ItemId) -- ^ Engine-only: item that unlocks it; Nothing means always open
-  , exitBlockedText :: Logic Text          -- ^ Engine-only: description when the way is blocked
-  , exitUnlockText  :: Logic (Maybe Text)  -- ^ Engine-only: description on a successful unlock
+  , exitBlocked     :: Logic (Maybe Text)  -- ^ Engine-only: Just a description if the way is blocked; Nothing means open
+  , exitUnlock      :: Action (Maybe Text) -- ^ Engine-only: the unlock command; succeeds if it changes the game state
   }
 
 data Room = Room
@@ -95,14 +144,9 @@ itemVisible it = do
     Just (Under _) -> False
     _              -> True
 
--- | An exit can be used if it needs no key, or its key is in its lock.
+-- | An exit can be used if it isn't blocked.
 exitTraversable :: Exit -> Logic Bool
-exitTraversable e = do
-  req <- exitRequires e
-  case (req, exitId e) of
-    (Nothing,   _)       -> pure True
-    (Just need, Just x)  -> (== Just (InLock x)) <$> asks (placeOf need)
-    (Just _,    Nothing) -> pure False
+exitTraversable e = isNothing <$> exitBlocked e
 
 -- | An exit that is always open.
 openExit :: Text -> Room -> Exit
@@ -111,9 +155,8 @@ openExit dir to = Exit
   , exitDirection   = dir
   , exitTo          = pure (roomId to)
   , exitRules       = pure Nothing
-  , exitRequires    = pure Nothing
-  , exitBlockedText = pure ""
-  , exitUnlockText  = pure Nothing
+  , exitBlocked     = pure Nothing
+  , exitUnlock      = pure Nothing
   }
 
 initialState :: GameState
@@ -123,6 +166,7 @@ initialState = GameState
       [ (itemId rock, InRoom (roomId river))
       , (itemId key,  Under (itemId rock))
       ]
+  , gsFlags    = Set.empty
   }
 
 rooms :: Map RoomId Room
@@ -186,9 +230,18 @@ door = Exit
       if t
           then pure $ Just "You can go through the door."
           else pure $ Just "A locked wooden door in the wall. The player can unlock this door if they have the key. They must explicitly say to unlock it."
-  , exitRequires    = pure (Just (itemId key))
-  , exitBlockedText = pure "the door is locked"
-  , exitUnlockText  = pure (Just "the key turns stiffly in the lock and the door swings open")
+  , exitBlocked     = do
+      u <- getFlag "door unlocked"
+      pure $ if u then Nothing else Just "the door is locked"
+  , exitUnlock      = do
+      u <- getFlag "door unlocked"
+      if u then pure (Just "it is already unlocked") else do
+        carried <- logic inventory
+        if any ((== itemId key) . itemId) carried
+          then do
+            setFlag "door unlocked"
+            pure (Just "the key turns stiffly in the lock and the door swings open")
+          else pure (Just "the player does not have the key")
   }
 
 garden :: Room

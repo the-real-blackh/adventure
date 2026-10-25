@@ -132,7 +132,7 @@ runSession env gs0 prev cmd0 = do
                       debugLog env "engine" "too many actions for one command; ending the session"
                       done gs said'
                   | otherwise -> do
-                      let (outcome, gs') = runAction action gs
+                      let (outcome, gs') = runCommand action gs
                       debugLog env "engine"
                         (T.pack (show action) <> " => " <> TL.toStrict (encodeToLazyText outcome))
                       step (n + 1) gs' said'
