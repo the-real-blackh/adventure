@@ -6,6 +6,7 @@
 module Main (main) where
 
 import           Control.Monad       (unless, when)
+import           Data.Maybe          (fromMaybe)
 import           Data.Aeson.Text     (encodeToLazyText)
 import           Data.Text           (Text)
 import qualified Data.Text           as T
@@ -19,6 +20,7 @@ import           System.IO
 import           Engine
 import           Llm
 import           Prompt
+import           State
 import           World
 
 data Env = Env
@@ -32,6 +34,10 @@ modelName = "qwen3.5:4b"
 -- | Safety valve: the most actions the LLM may chain for one command.
 maxActions :: Int
 maxActions = 4
+
+-- | Where the game state is saved after every command.
+saveFile :: FilePath
+saveFile = "adventure.save"
 
 main :: IO ()
 main = do
@@ -55,8 +61,11 @@ main = do
 
   debugLog env "system prompt" systemPrompt
 
+  -- Carry on from the saved game if there is one.
+  gs0 <- fromMaybe initialState <$> loadState saveFile
+
   -- The first command is implicit, so the story opens with the room.
-  (gs, said) <- runSession env initialWorld "" "look"
+  (gs, said) <- runSession env gs0 "" "look"
   loop env gs said
 
 -- | The game loop. 'prev' is the story text the narrator wrote in
@@ -75,6 +84,7 @@ loop env gs prev = do
           else do
             TIO.putStrLn ""
             (gs', said) <- runSession env gs prev cmd
+            saveState saveFile gs'
             -- If this session produced no text (e.g. an error), keep the
             -- older reply so the narrator still has something to refer to.
             loop env gs' (if T.null said then prev else said)

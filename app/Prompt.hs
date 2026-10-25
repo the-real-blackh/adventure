@@ -16,6 +16,7 @@ import qualified Data.Text        as T
 import qualified Data.Text.Lazy   as TL
 
 import           Engine           (Outcome)
+import           State
 import           World
 
 systemPrompt :: Text
@@ -102,26 +103,26 @@ stateView gs = object
   [ "room" .= object
       [ "id"          .= roomId r
       , "description" .= roomDescription r
-      , "items"       .= map itemView (roomItems r)
-      , "exits"       .= map exitView (roomExits r)
+      , "items"       .= map (itemView gs) (roomItems (roomId r) gs)
+      , "exits"       .= map (exitView gs) (roomExits r)
       ]
-  , "inventory" .= map itemView (gsInventory gs)
+  , "inventory" .= map (itemView gs) (inventory gs)
   ]
   where r = currentRoom gs
 
-itemView :: Item -> Value
-itemView it = object $
+itemView :: GameState -> Item -> Value
+itemView gs it = object $
   [ "id"          .= itemId it
   , "description" .= itemDescription it
-  , "visible"     .= itemVisible it
-  ] ++ opt "rules" (itemRules it it)
+  , "visible"     .= itemVisible gs it
+  ] ++ opt "rules" (itemRules it gs)
 
-exitView :: Exit -> Value
-exitView e = object $
+exitView :: GameState -> Exit -> Value
+exitView gs e = object $
   [ "direction"   .= exitDirection e
   , "leads_to"    .= exitTo e
-  , "traversable" .= exitTraversable e
-  ] ++ opt "id" (exitId e) ++ opt "rules" (exitRules e e)
+  , "traversable" .= exitTraversable gs e
+  ] ++ opt "id" (exitId e) ++ opt "rules" (exitRules e gs)
 
 opt :: Key -> Maybe Text -> [Pair]
 opt k = maybe [] (\v -> [k .= v])
