@@ -21,6 +21,8 @@ module World
   , setFlag
   , clearFlag
   , getFlag
+  , moveTo
+  , reveal
   , Portability (..)
   , Item (..)
   , Exit (..)
@@ -28,6 +30,9 @@ module World
   , currentRoom
   , roomItems
   , inventory
+  , carrying
+  , isIn
+  , here
   , itemVisible
   , exitTraversable
   , initialState
@@ -82,6 +87,19 @@ setFlag k = modifyState (\gs -> gs { gsFlags = Set.insert k (gsFlags gs) })
 clearFlag :: Text -> Action ()
 clearFlag k = modifyState (\gs -> gs { gsFlags = Set.delete k (gsFlags gs) })
 
+-- | Move an item to a new place.
+moveTo :: Item -> Place -> Action ()
+moveTo it p = modifyState (moveItem (itemId it) p)
+
+-- | Reveal a hidden item, putting it in plain sight in the player's current
+-- room. Returns False, changing nothing, if it was already visible.
+reveal :: Item -> Action Bool
+reveal it = do
+  v <- logic $ itemVisible it
+  if v then pure False else do
+    moveTo it . InRoom =<< gets (gsLocation . fst)
+    pure True
+
 getFlag :: ReadState m => Text -> m Bool
 getFlag k = Set.member k . gsFlags <$> readState
 
@@ -94,7 +112,7 @@ data Item = Item
   , itemDescription :: Logic Text
   , itemRules       :: Logic (Maybe Text)  -- ^ Guidance for the LLM about this item
   , itemPortability :: Logic Portability   -- ^ Engine-only
-  , itemRevealText  :: Logic (Maybe Text)  -- ^ Engine-only: description returned on a successful reveal
+  , itemReveal      :: Action (Maybe Text) -- ^ Engine-only: the reveal command; succeeds if it changes the game state
   }
 
 data Exit = Exit
@@ -135,6 +153,18 @@ itemsWhere :: (Place -> Bool) -> Logic [Item]
 itemsWhere p = do
   places <- asks gsItems
   pure [ it | (iid, pl) <- Map.toList places, p pl, Just it <- [Map.lookup iid items] ]
+
+-- | Whether the player is carrying the item.
+carrying :: Item -> Logic Bool
+carrying it = (== Just Carried) <$> asks (placeOf (itemId it))
+
+-- | Whether the item is in the room, including hidden beneath another item.
+isIn :: Item -> Room -> Logic Bool
+isIn it r = any ((== itemId it) . itemId) <$> roomItems (roomId r)
+
+-- | Whether the item is in the player's current room.
+here :: Item -> Logic Bool
+here it = isIn it =<< currentRoom
 
 -- | False: the LLM knows about it but must not mention it.
 itemVisible :: Item -> Logic Bool
@@ -197,7 +227,7 @@ rock = Item
   , itemDescription = pure "a small mossy rock by the river"
   , itemRules       = pure $ Just "It is half-buried in the mud. The player can lift it or look under it."
   , itemPortability = pure $ Fixed "the rock is half-buried in the mud and won't come free"
-  , itemRevealText  = pure Nothing
+  , itemReveal      = pure (Just "that is already in plain sight")
   }
 
 key :: Item
@@ -210,7 +240,11 @@ key = Item
           then pure Nothing
           else pure $ Just "Reveal if the player looks under, lifts, moves or turns over the rock."
   , itemPortability = pure Portable
-  , itemRevealText  = pure (Just "the player found a key glinting in the mud under the rock")
+  , itemReveal      = do
+      revealed <- reveal key
+      pure $ Just $ if revealed
+        then "the player found a key glinting in the mud under the rock"
+        else "that is already in plain sight"
   }
 
 grassy :: Room
@@ -236,8 +270,8 @@ door = Exit
   , exitUnlock      = do
       u <- getFlag "door unlocked"
       if u then pure (Just "it is already unlocked") else do
-        carried <- logic inventory
-        if any ((== itemId key) . itemId) carried
+        hasKey <- logic $ carrying key
+        if hasKey
           then do
             setFlag "door unlocked"
             pure (Just "the key turns stiffly in the lock and the door swings open")

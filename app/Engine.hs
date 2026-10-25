@@ -36,7 +36,7 @@ instance ToJSON Outcome where
 
 runCommand :: Command -> GameState -> (Outcome, GameState)
 runCommand command gs = flip runReader gs $ do
-  here    <- roomItems (gsLocation gs)
+  present <- roomItems (gsLocation gs)
   carried <- inventory
   exits   <- roomExits =<< currentRoom
   case command of
@@ -53,7 +53,7 @@ runCommand command gs = flip runReader gs $ do
       let notHere
             | any (matches iid) carried = failWith "the player is already carrying that"
             | otherwise                 = failWith "there is nothing like that here"
-      case findItem iid here of
+      case findItem iid present of
         Nothing -> pure notHere
         Just it -> do
           v <- itemVisible it
@@ -67,25 +67,20 @@ runCommand command gs = flip runReader gs $ do
       Nothing -> failWith "the player is not carrying that"
       Just it -> succeed Nothing (moveItem (itemId it) (InRoom (gsLocation gs)) gs)
 
-    Reveal iid -> case findItem iid here of
+    Reveal iid -> case findItem iid present of
       Nothing -> pure $ failWith "there is nothing like that to be found here"
-      Just it -> do
-        v <- itemVisible it
-        if v
-          then pure $ failWith "that is already in plain sight"
-          else do
-            d <- itemRevealText it
-            pure $ succeed d (moveItem (itemId it) (InRoom (gsLocation gs)) gs)
+      Just it -> pure $ runOutcome (itemReveal it)
 
     Unlock eid -> case find (maybe False ((== norm eid) . norm) . exitId) exits of
       Nothing -> pure $ failWith "there is nothing like that to unlock here"
-      Just e -> pure $
-        let (d, gs', changed) = runAction (exitUnlock e) gs
-        in  (Outcome changed d, gs')
+      Just e -> pure $ runOutcome (exitUnlock e)
 
   where
     succeed d gs' = (Outcome True d, gs')
     failWith d    = (Outcome False (Just d), gs)
+    -- Success means the action changed the game state.
+    runOutcome act = let (d, gs', changed) = runAction act gs
+                     in  (Outcome changed d, gs')
 
 -- Helpers ------------------------------------------------------------------
 
