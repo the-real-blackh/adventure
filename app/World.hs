@@ -225,8 +225,8 @@ rock :: Item
 rock = Item
   { itemId          = "rock"
   , itemDescription = pure "a small mossy rock by the river"
-  , itemRules       = pure $ Just "It is half-buried in the mud. The player can lift it or look under it."
-  , itemPortability = pure $ Fixed "the rock is half-buried in the mud and won't come free"
+  , itemRules       = pure $ Just "It is half-buried in the mud."
+  , itemPortability = pure $ Fixed "there is nothung to grab it by and it won't come free from the mud"
   , itemReveal      = pure (Just "that is already in plain sight")
   }
 
