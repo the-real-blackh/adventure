@@ -8,6 +8,7 @@ module Prompt
   , resultMessage
   ) where
 
+import           Control.Monad.Reader (runReader)
 import           Data.Aeson       (Key, Value, object, (.=))
 import           Data.Aeson.Text  (encodeToLazyText)
 import           Data.Aeson.Types (Pair)
@@ -99,30 +100,43 @@ resultMessage out gs = render $ object
 
 -- | The LLM's view of the world. Engine-only fields are left out.
 stateView :: GameState -> Value
-stateView gs = object
-  [ "room" .= object
-      [ "id"          .= roomId r
-      , "description" .= roomDescription r
-      , "items"       .= map (itemView gs) (roomItems (roomId r) gs)
-      , "exits"       .= map (exitView gs) (roomExits r)
-      ]
-  , "inventory" .= map (itemView gs) (inventory gs)
-  ]
-  where r = currentRoom gs
+stateView = runReader $ do
+  r     <- currentRoom
+  desc  <- roomDescription r
+  its   <- mapM itemView =<< roomItems (roomId r)
+  exits <- mapM exitView =<< roomExits r
+  inv   <- mapM itemView =<< inventory
+  pure $ object
+    [ "room" .= object
+        [ "id"          .= roomId r
+        , "description" .= desc
+        , "items"       .= its
+        , "exits"       .= exits
+        ]
+    , "inventory" .= inv
+    ]
 
-itemView :: GameState -> Item -> Value
-itemView gs it = object $
-  [ "id"          .= itemId it
-  , "description" .= itemDescription it
-  , "visible"     .= itemVisible gs it
-  ] ++ opt "rules" (itemRules it gs)
+itemView :: Item -> Logic Value
+itemView it = do
+  desc  <- itemDescription it
+  vis   <- itemVisible it
+  rules <- itemRules it
+  pure $ object $
+    [ "id"          .= itemId it
+    , "description" .= desc
+    , "visible"     .= vis
+    ] ++ opt "rules" rules
 
-exitView :: GameState -> Exit -> Value
-exitView gs e = object $
-  [ "direction"   .= exitDirection e
-  , "leads_to"    .= exitTo e
-  , "traversable" .= exitTraversable gs e
-  ] ++ opt "id" (exitId e) ++ opt "rules" (exitRules e gs)
+exitView :: Exit -> Logic Value
+exitView e = do
+  to    <- exitTo e
+  trav  <- exitTraversable e
+  rules <- exitRules e
+  pure $ object $
+    [ "direction"   .= exitDirection e
+    , "leads_to"    .= to
+    , "traversable" .= trav
+    ] ++ opt "id" (exitId e) ++ opt "rules" rules
 
 opt :: Key -> Maybe Text -> [Pair]
 opt k = maybe [] (\v -> [k .= v])

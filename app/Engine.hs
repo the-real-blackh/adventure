@@ -8,10 +8,11 @@ module Engine
   , runAction
   ) where
 
-import           Data.Aeson (ToJSON (..), object, (.=))
-import           Data.List  (find)
-import           Data.Text  (Text)
-import qualified Data.Text  as T
+import           Control.Monad.Reader (runReader)
+import           Data.Aeson           (ToJSON (..), object, (.=))
+import           Data.List            (find)
+import           Data.Text            (Text)
+import qualified Data.Text            as T
 
 import           State
 import           World
@@ -34,46 +35,63 @@ instance ToJSON Outcome where
     object (("success" .= s) : maybe [] (\t -> ["description" .= t]) d)
 
 runAction :: Action -> GameState -> (Outcome, GameState)
-runAction action gs = case action of
+runAction action gs = flip runReader gs $ do
+  here    <- roomItems (gsLocation gs)
+  carried <- inventory
+  exits   <- roomExits =<< currentRoom
+  case action of
 
-  Go dir -> case find (\exit -> exitDirection exit == norm dir || exitId exit == Just (norm dir)) exits of
-    Nothing -> failWith ("there is no way to go " <> dir <> " from here")
-    Just e
-      | not (exitTraversable gs e) -> failWith (exitBlockedText e)
-      | otherwise                  -> succeed Nothing gs { gsLocation = exitTo e }
+    Go dir -> case find (\exit -> exitDirection exit == norm dir || exitId exit == Just (norm dir)) exits of
+      Nothing -> pure $ failWith ("there is no way to go " <> dir <> " from here")
+      Just e -> do
+        t <- exitTraversable e
+        if t
+          then (\to -> succeed Nothing gs { gsLocation = to }) <$> exitTo e
+          else failWith <$> exitBlockedText e
 
-  Take iid -> case findItem iid here of
-    Just it | itemVisible gs it -> case itemPortability it of
-      Fixed why -> failWith why
-      Portable  -> succeed Nothing (moveItem (itemId it) Carried gs)
-    _ | any (matches iid) carried -> failWith "the player is already carrying that"
-      | otherwise                 -> failWith "there is nothing like that here"
+    Take iid -> do
+      let notHere
+            | any (matches iid) carried = failWith "the player is already carrying that"
+            | otherwise                 = failWith "there is nothing like that here"
+      case findItem iid here of
+        Nothing -> pure notHere
+        Just it -> do
+          v <- itemVisible it
+          if not v then pure notHere else do
+            p <- itemPortability it
+            pure $ case p of
+              Fixed why -> failWith why
+              Portable  -> succeed Nothing (moveItem (itemId it) Carried gs)
 
-  Drop iid -> case findItem iid carried of
-    Nothing -> failWith "the player is not carrying that"
-    Just it -> succeed Nothing (moveItem (itemId it) (InRoom (gsLocation gs)) gs)
+    Drop iid -> pure $ case findItem iid carried of
+      Nothing -> failWith "the player is not carrying that"
+      Just it -> succeed Nothing (moveItem (itemId it) (InRoom (gsLocation gs)) gs)
 
-  Reveal iid -> case findItem iid here of
-    Nothing -> failWith "there is nothing like that to be found here"
-    Just it
-      | itemVisible gs it -> failWith "that is already in plain sight"
-      | otherwise         -> succeed (itemRevealText it) (moveItem (itemId it) (InRoom (gsLocation gs)) gs)
+    Reveal iid -> case findItem iid here of
+      Nothing -> pure $ failWith "there is nothing like that to be found here"
+      Just it -> do
+        v <- itemVisible it
+        if v
+          then pure $ failWith "that is already in plain sight"
+          else do
+            d <- itemRevealText it
+            pure $ succeed d (moveItem (itemId it) (InRoom (gsLocation gs)) gs)
 
-  Unlock eid -> case find (maybe False ((== norm eid) . norm) . exitId) exits of
-    Nothing -> failWith "there is nothing like that to unlock here"
-    Just e
-      | exitTraversable gs e -> failWith "it is already unlocked"
-      | Just need <- exitRequires e, Just x <- exitId e ->
-          if any (matches need) carried
-            then succeed (exitUnlockText e) (moveItem need (InLock x) gs)
-            else failWith ("the player does not have the " <> need)
-      | otherwise -> failWith "it cannot be unlocked"
+    Unlock eid -> case find (maybe False ((== norm eid) . norm) . exitId) exits of
+      Nothing -> pure $ failWith "there is nothing like that to unlock here"
+      Just e -> do
+        t   <- exitTraversable e
+        req <- exitRequires e
+        case (req, exitId e) of
+          _ | t -> pure $ failWith "it is already unlocked"
+          (Just need, Just x)
+            | any (matches need) carried -> do
+                d <- exitUnlockText e
+                pure $ succeed d (moveItem need (InLock x) gs)
+            | otherwise -> pure $ failWith ("the player does not have the " <> need)
+          _ -> pure $ failWith "it cannot be unlocked"
 
   where
-    here    = roomItems (gsLocation gs) gs
-    carried = inventory gs
-    exits   = roomExits (currentRoom gs)
-
     succeed d gs' = (Outcome True d, gs')
     failWith d    = (Outcome False (Just d), gs)
 
